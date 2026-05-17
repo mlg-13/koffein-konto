@@ -253,3 +253,22 @@ h2 {
   margin-left: 25px;
 
 }
+
+@media (max-width: 600px) {
+  .brand-row,
+  .brand-row {
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .brand-row h1,
+  .brand-row h1 {
+    font-size: 32px;
+  }
+
+  .brand-logo,
+  .brand-logo {
+    width: 42px;
+    height: 42px;
+  }
+}
