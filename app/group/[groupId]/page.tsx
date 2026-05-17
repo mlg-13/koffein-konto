@@ -60,6 +60,12 @@ export default function GroupPage() {
 
     const joinGroup = async () => {
         if (!nameInput.trim()) {
+            alert("Bitte gib deinen Namen ein.");
+            return;
+        }
+
+        if (!groupName) {
+            alert("Gruppe wurde nicht geladen. Prüfe den Link.");
             return;
         }
 
