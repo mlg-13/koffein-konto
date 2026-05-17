@@ -38,6 +38,10 @@ export default function GroupPage() {
         const loadGroup = async () => {
             const groupDocRef = doc(db, "groups", groupId);
             const groupDoc = await getDoc(groupDocRef);
+            if (!groupDoc.exists()) {
+                alert("Diese Gruppe wurde nicht gefunden.");
+                return;
+            }
             const data = groupDoc.data();
 
             if (data) {
@@ -59,6 +63,7 @@ export default function GroupPage() {
     };
 
     const joinGroup = async () => {
+
         if (!nameInput.trim()) {
             alert("Bitte gib deinen Namen ein.");
             return;
