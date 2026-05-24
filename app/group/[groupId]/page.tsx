@@ -22,12 +22,12 @@ export default function GroupPage() {
 
     const peopleNames = Object.keys(peopleTokens);
 
-    const lowestToken = peopleNames.length > 0
-        ? Math.min(...peopleNames.map((person) => peopleTokens[person]))
+    const lowestToken = presentPeople.length > 0
+        ? Math.min(...presentPeople.map((person) => peopleTokens[person]))
         : null;
 
     const lowestPeople = lowestToken !== null
-        ? peopleNames.filter((person) => peopleTokens[person] === lowestToken)
+        ? presentPeople.filter((person) => peopleTokens[person] === lowestToken)
         : [];
 
     useEffect(() => {
@@ -211,12 +211,6 @@ export default function GroupPage() {
                     </button>
                 </div>
 
-                {lowestPeople.length > 0 && (
-                    <div className="next-box">
-                        <span className="label">Als Nächstes zahlen muss:</span>
-                        <strong>{lowestPeople.join(", ")}</strong>
-                    </div>
-                )}
 
                 <div className="section-header">
                     <h2>Teilnehmer</h2>
@@ -257,6 +251,12 @@ export default function GroupPage() {
 
                 {showPaymentArea && (
                     <div className="payment-area">
+                        {lowestPeople.length > 0 && (
+                            <div className="next-box">
+                                <span className="label">Als Nächstes zahlen muss:</span>
+                                <strong>{lowestPeople.join(", ")}</strong>
+                            </div>
+                        )}
                         <h2>Wer hat bezahlt?</h2>
                         <p className="subtitle">
                             Es werden nur die ausgewählten Personen angezeigt.
