@@ -1,10 +1,43 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { db } from "@/app/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import Image from "next/image";
+
+type Payment = {
+    id: string;
+    payer: string;
+    presentPeople: string[];
+    createdAt: string;
+};
+
+function calculateTokens(
+    baseTokens: { [key: string]: number },
+    members: string[],
+    payments: Payment[]
+) {
+    const tokens: { [key: string]: number } = {};
+
+    members.forEach((member) => {
+        tokens[member] = baseTokens[member] ?? 0;
+    });
+
+    payments.forEach((payment) => {
+        const otherPresentPeople = payment.presentPeople.filter(
+            (person) => person !== payment.payer
+        );
+
+        tokens[payment.payer] = (tokens[payment.payer] || 0) + otherPresentPeople.length;
+
+        otherPresentPeople.forEach((person) => {
+            tokens[person] = (tokens[person] || 0) - 1;
+        });
+    });
+
+    return tokens;
+}
 
 export default function GroupPage() {
     const params = useParams();
@@ -13,21 +46,25 @@ export default function GroupPage() {
     const [groupName, setGroupName] = useState("");
     const [savedName, setSavedName] = useState<string | null | undefined>(undefined);
     const [nameInput, setNameInput] = useState("");
-    const [history, setHistory] = useState<string[]>([]);
+
+    const [members, setMembers] = useState<string[]>([]);
+    const [baseTokens, setBaseTokens] = useState<{ [key: string]: number }>({});
+    const [payments, setPayments] = useState<Payment[]>([]);
     const [presentPeople, setPresentPeople] = useState<string[]>([]);
+
     const [showPaymentArea, setShowPaymentArea] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
 
-    const [peopleTokens, setPeopleTokens] = useState<{ [key: string]: number }>({});
-
-    const peopleNames = Object.keys(peopleTokens);
+    const peopleTokens = useMemo(() => {
+        return calculateTokens(baseTokens, members, payments);
+    }, [baseTokens, members, payments]);
 
     const lowestToken = presentPeople.length > 0
-        ? Math.min(...presentPeople.map((person) => peopleTokens[person]))
+        ? Math.min(...presentPeople.map((person) => peopleTokens[person] ?? 0))
         : null;
 
     const lowestPeople = lowestToken !== null
-        ? presentPeople.filter((person) => peopleTokens[person] === lowestToken)
+        ? presentPeople.filter((person) => (peopleTokens[person] ?? 0) === lowestToken)
         : [];
 
     useEffect(() => {
@@ -38,19 +75,24 @@ export default function GroupPage() {
         const loadGroup = async () => {
             const groupDocRef = doc(db, "groups", groupId);
             const groupDoc = await getDoc(groupDocRef);
+
             if (!groupDoc.exists()) {
                 alert("Diese Gruppe wurde nicht gefunden.");
                 return;
             }
+
             const data = groupDoc.data();
 
             if (data) {
                 const loadedTokens = data.peopleTokens || {};
+                const loadedMembers = Object.keys(loadedTokens);
+                const loadedPayments = data.payments || [];
 
                 setGroupName(data.name);
-                setPeopleTokens(loadedTokens);
-                setPresentPeople(Object.keys(loadedTokens));
-                setHistory(data.history || []);
+                setBaseTokens(loadedTokens);
+                setMembers(loadedMembers);
+                setPresentPeople(loadedMembers);
+                setPayments(loadedPayments);
             }
         };
 
@@ -76,13 +118,20 @@ export default function GroupPage() {
 
         const cleanName = nameInput.trim();
 
-        const updatedTokens = {
-            ...peopleTokens,
-            [cleanName]: 0
+        const updatedMembers = members.includes(cleanName)
+            ? members
+            : [...members, cleanName];
+
+        const updatedBaseTokens = {
+            ...baseTokens,
+            [cleanName]: baseTokens[cleanName] ?? 0
         };
 
-        setPeopleTokens(updatedTokens);
-        setPresentPeople(Object.keys(updatedTokens));
+        const updatedTokens = calculateTokens(updatedBaseTokens, updatedMembers, payments);
+
+        setMembers(updatedMembers);
+        setBaseTokens(updatedBaseTokens);
+        setPresentPeople(updatedMembers);
 
         const groupDocRef = doc(db, "groups", groupId);
 
@@ -113,45 +162,55 @@ export default function GroupPage() {
             return;
         }
 
-        const otherPresentPeople = presentPeople.filter((person) => person !== payer);
 
-        const now = new Date();
 
-        const formattedDate = now.toLocaleString("de-DE", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit"
-        });
+        const newPayment: Payment = {
+            id: crypto.randomUUID(),
+            payer,
+            presentPeople: [...presentPeople],
+            createdAt: new Date().toISOString()
+        };
 
-        const newHistory = [
-            ...history,
-            `${formattedDate} — ${payer} hat bezahlt. Dabei waren: ${presentPeople.join(", ")}`
-        ];
+        const newPayments = [...payments, newPayment];
+        const newTokens = calculateTokens(baseTokens, members, newPayments);
 
-        setHistory(newHistory);
 
-        setPeopleTokens((prevTokens) => {
-            const newTokens = { ...prevTokens };
 
-            newTokens[payer] = newTokens[payer] + otherPresentPeople.length;
 
-            otherPresentPeople.forEach((person) => {
-                newTokens[person] = newTokens[person] - 1;
-            });
 
-            const groupDocRef = doc(db, "groups", groupId);
 
-            updateDoc(groupDocRef, {
-                peopleTokens: newTokens,
-                history: newHistory
-            });
+        setPayments(newPayments);
 
-            return newTokens;
+
+
+
+        const groupDocRef = doc(db, "groups", groupId);
+
+        await updateDoc(groupDocRef, {
+            payments: newPayments,
+            peopleTokens: newTokens
         });
 
         setShowPaymentArea(false);
+    };
+
+    const deletePayment = async (paymentId: string) => {
+        const newPayments = payments.filter((payment) => payment.id !== paymentId);
+        const newTokens = calculateTokens(baseTokens, members, newPayments);
+
+        setPayments(newPayments);
+
+        const groupDocRef = doc(db, "groups", groupId);
+
+
+
+
+        await updateDoc(groupDocRef, {
+            payments: newPayments,
+            peopleTokens: newTokens
+        });
+
+
     };
 
     if (savedName === undefined) {
@@ -203,6 +262,7 @@ export default function GroupPage() {
                                 className="brand-logo-site"
                             />
                         </div>
+
                         <p className="subtitle">Hallo {savedName}</p>
                     </div>
 
@@ -214,6 +274,7 @@ export default function GroupPage() {
 
                 <div className="section-header">
                     <h2>Teilnehmer</h2>
+
                     <button
                         onClick={() => setShowPaymentArea(!showPaymentArea)}
                         className="btn primary"
@@ -223,7 +284,7 @@ export default function GroupPage() {
                 </div>
 
                 <div className="people-list">
-                    {peopleNames.map((person) => (
+                    {members.map((person) => (
                         <div
                             key={person}
                             className={
@@ -242,8 +303,8 @@ export default function GroupPage() {
                                 </p>
                             </div>
 
-                            <span className={peopleTokens[person] < 0 ? "token negative" : "token positive"}>
-                                {peopleTokens[person]}
+                            <span className={(peopleTokens[person] ?? 0) < 0 ? "token negative" : "token positive"}>
+                                {peopleTokens[person] ?? 0}
                             </span>
                         </div>
                     ))}
@@ -257,7 +318,9 @@ export default function GroupPage() {
                                 <strong>{lowestPeople.join(", ")}</strong>
                             </div>
                         )}
+
                         <h2>Wer hat bezahlt?</h2>
+
                         <p className="subtitle">
                             Es werden nur die ausgewählten Personen angezeigt.
                         </p>
@@ -278,6 +341,7 @@ export default function GroupPage() {
 
                 <div className="section-header">
                     <h2>Verlauf</h2>
+
                     <button
                         onClick={() => setShowHistory(!showHistory)}
                         className="btn secondary"
@@ -288,15 +352,35 @@ export default function GroupPage() {
 
                 {showHistory && (
                     <div className="history-list">
-                        {history.length === 0 ? (
-                            <p className="subtitle">Noch keine Zahlungen.</p>
+                        {payments.length === 0 ? (
+                            <p className="subtitle">Noch keine neuen Zahlungen.</p>
                         ) : (
-                            history
+                            payments
                                 .slice()
                                 .reverse()
-                                .map((entry, index) => (
-                                    <div key={index} className="history-item">
-                                        {entry}
+                                .map((payment, index) => (
+                                    <div key={payment.id ?? index} className="history-item">
+                                        {new Date(payment.createdAt).toLocaleString("de-DE", {
+                                            day: "2-digit",
+                                            month: "2-digit",
+                                            year: "numeric",
+                                            hour: "2-digit",
+                                            minute: "2-digit"
+                                        })}{" "}
+                                        — {payment.payer} hat bezahlt. Dabei waren:{" "}
+                                        {payment.presentPeople.join(", ")}
+
+                                        <button
+                                            className="btn secondary"
+                                            style={{
+                                                marginLeft: "12px",
+                                                padding: "2px 6px",
+                                                fontSize: "13px"
+                                            }}
+                                            onClick={() => deletePayment(payment.id)}
+                                        >
+                                            Löschen
+                                        </button>
                                     </div>
                                 ))
                         )}
