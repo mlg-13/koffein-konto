@@ -54,6 +54,9 @@ export default function GroupPage() {
 
     const [showPaymentArea, setShowPaymentArea] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
+    const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+    const [editPayer, setEditPayer] = useState("");
+    const [editPresentPeople, setEditPresentPeople] = useState<string[]>([]);
 
     const peopleTokens = useMemo(() => {
         return calculateTokens(baseTokens, members, payments);
@@ -85,7 +88,9 @@ export default function GroupPage() {
 
             if (data) {
                 const loadedTokens = data.peopleTokens || {};
-                const loadedMembers = Object.keys(loadedTokens);
+                const loadedMembers = Object.keys(loadedTokens).sort((a, b) =>
+                    a.localeCompare(b, "de", { sensitivity: "base" })
+                );
                 const loadedPayments = data.payments || [];
 
                 setGroupName(data.name);
@@ -120,7 +125,9 @@ export default function GroupPage() {
 
         const updatedMembers = members.includes(cleanName)
             ? members
-            : [...members, cleanName];
+            : [...members, cleanName].sort((a, b) =>
+                a.localeCompare(b, "de", { sensitivity: "base" })
+            );
 
         const updatedBaseTokens = {
             ...baseTokens,
@@ -187,8 +194,7 @@ export default function GroupPage() {
         const groupDocRef = doc(db, "groups", groupId);
 
         await updateDoc(groupDocRef, {
-            payments: newPayments,
-            peopleTokens: newTokens
+            payments: newPayments
         });
 
         setShowPaymentArea(false);
@@ -206,11 +212,81 @@ export default function GroupPage() {
 
 
         await updateDoc(groupDocRef, {
-            payments: newPayments,
-            peopleTokens: newTokens
+            payments: newPayments
         });
 
 
+    };
+
+    const startEditingPayment = (payment: Payment) => {
+        setEditingPaymentId(payment.id);
+        setEditPayer(payment.payer);
+        setEditPresentPeople([...payment.presentPeople]);
+    };
+
+    const cancelEditingPayment = () => {
+        setEditingPaymentId(null);
+        setEditPayer("");
+        setEditPresentPeople([]);
+    };
+
+    const toggleEditPresentPerson = (person: string) => {
+        if (editPresentPeople.includes(person)) {
+            const updatedPeople = editPresentPeople.filter(
+                (name) => name !== person
+            );
+
+            setEditPresentPeople(updatedPeople);
+
+            if (editPayer === person) {
+                setEditPayer("");
+            }
+        } else {
+            setEditPresentPeople([...editPresentPeople, person]);
+        }
+    };
+
+    const saveEditedPayment = async () => {
+        if (!editingPaymentId) {
+            return;
+        }
+
+        if (!editPayer) {
+            alert("Bitte wähle aus, wer bezahlt hat.");
+            return;
+        }
+
+        if (!editPresentPeople.includes(editPayer)) {
+            alert("Die zahlende Person muss auch anwesend sein.");
+            return;
+        }
+
+        if (editPresentPeople.length < 2) {
+            alert("Es müssen mindestens zwei Personen anwesend sein.");
+            return;
+        }
+
+        const newPayments = payments.map((payment) => {
+            if (payment.id !== editingPaymentId) {
+                return payment;
+            }
+
+            return {
+                ...payment,
+                payer: editPayer,
+                presentPeople: [...editPresentPeople]
+            };
+        });
+
+        setPayments(newPayments);
+
+        const groupDocRef = doc(db, "groups", groupId);
+
+        await updateDoc(groupDocRef, {
+            payments: newPayments
+        });
+
+        cancelEditingPayment();
     };
 
     if (savedName === undefined) {
@@ -370,22 +446,138 @@ export default function GroupPage() {
                                         — {payment.payer} hat bezahlt. Dabei waren:{" "}
                                         {payment.presentPeople.join(", ")}
 
-                                        <button
-                                            className="btn secondary"
+                                        <div
                                             style={{
-                                                marginLeft: "12px",
-                                                padding: "2px 6px",
-                                                fontSize: "13px"
+                                                display: "flex",
+                                                gap: "8px",
+                                                marginTop: "10px"
                                             }}
-                                            onClick={() => deletePayment(payment.id)}
                                         >
-                                            Löschen
-                                        </button>
+                                            <button
+                                                className="btn secondary"
+                                                style={{
+                                                    padding: "4px 8px",
+                                                    fontSize: "13px"
+                                                }}
+                                                onClick={() => startEditingPayment(payment)}
+                                            >
+                                                Bearbeiten
+                                            </button>
+
+                                            <button
+                                                className="btn secondary"
+                                                style={{
+                                                    padding: "4px 8px",
+                                                    fontSize: "13px"
+                                                }}
+                                                onClick={() => deletePayment(payment.id)}
+                                            >
+                                                Löschen
+                                            </button>
+                                        </div>
                                     </div>
                                 ))
                         )}
                     </div>
                 )}
+                {editingPaymentId && (
+                    <div
+                        className="modal-overlay"
+                        onClick={cancelEditingPayment}
+                    >
+                        <div
+                            className="modal-window"
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            <div className="modal-header">
+                                <div>
+                                    <h2>Zahlung bearbeiten</h2>
+                                    <p className="subtitle">
+                                        Ändere den Zahler oder die anwesenden Personen.
+                                    </p>
+                                </div>
+
+                                <button
+                                    className="modal-close"
+                                    onClick={cancelEditingPayment}
+                                    aria-label="Fenster schließen"
+                                >
+                                    ×
+                                </button>
+                            </div>
+
+                            <p className="subtitle">
+                                Welche Personen waren bei der Zahlung dabei?
+                            </p>
+
+                            <div className="people-list modal-people-list">
+                                {members.map((person) => (
+                                    <div
+                                        key={person}
+                                        className={
+                                            editPresentPeople.includes(person)
+                                                ? "person-card active"
+                                                : "person-card"
+                                        }
+                                        onClick={() => toggleEditPresentPerson(person)}
+                                    >
+                                        <div>
+                                            <strong>{person}</strong>
+                                            <p>
+                                                {editPresentPeople.includes(person)
+                                                    ? "Dabei"
+                                                    : "Nicht dabei"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <h2 className="modal-section-title">
+                                Wer hat bezahlt?
+                            </h2>
+
+                            <div className="button-grid">
+                                {editPresentPeople.map((person) => (
+                                    <button
+                                        key={person}
+                                        className={
+                                            editPayer === person
+                                                ? "btn primary"
+                                                : "btn secondary"
+                                        }
+                                        onClick={() => setEditPayer(person)}
+                                    >
+                                        {person}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {editPresentPeople.length === 0 && (
+                                <p className="subtitle">
+                                    Wähle zuerst mindestens zwei anwesende Personen aus.
+                                </p>
+                            )}
+
+                            <div className="modal-actions">
+                                <button
+                                    className="btn primary"
+                                    onClick={saveEditedPayment}
+                                >
+                                    Änderung speichern
+                                </button>
+
+                                <button
+                                    className="btn secondary"
+                                    onClick={cancelEditingPayment}
+                                >
+                                    Abbrechen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
             </div>
         </div>
     );
